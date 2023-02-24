@@ -6,6 +6,8 @@ Docker compose solution to install zammad ticket system including Kibana reporti
 - Docker
 
 After downloading zambana just start docker compose
-´´´
+
+```
 docker-compose -p zambana up
-´´´
+```
+
