@@ -1,0 +1,255 @@
+---
+version: '1'
+
+services:
+
+  zammad-es-setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ESSTACK_VERSION}
+    volumes:
+      - zammad-certs:/usr/share/elasticsearch/config/certs
+    user: "0"
+    command: >
+      bash -c '
+        if [ x${ES_PASS} == x ]; then
+          echo "Set the ES_PASS environment variable in the .env file";
+          exit 1;
+        elif [ x${KIB_PASS} == x ]; then
+          echo "Set the KIB_PASS environment variable in the .env file";
+          exit 1;
+        fi;
+        if [ ! -f certs/ca.zip ]; then
+          echo "Creating CA";
+          bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
+          unzip config/certs/ca.zip -d config/certs;
+        fi;
+        if [ ! -f certs/certs.zip ]; then
+          echo "Creating certs";
+          echo -ne \
+          "instances:\n"\
+          "  - name: zammades\n"\
+          "    dns:\n"\
+          "      - zammad-es\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          > config/certs/instances.yml;
+          bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
+          unzip config/certs/certs.zip -d config/certs;
+        fi;
+        echo "Setting file permissions"
+        chown -R root:root config/certs;
+        find . -type d -exec chmod 750 \{\} \;;
+        find . -type f -exec chmod 640 \{\} \;;
+        echo "Waiting for Elasticsearch availability";
+        until curl -s --cacert config/certs/ca/ca.crt https://zammad-es:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
+        echo "Setting kibana_system password";
+        until curl -s -X POST --cacert config/certs/ca/ca.crt -u elastic:${ES_PASS} -H "Content-Type: application/json" https://zammad-es:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIB_PASS}\"}" | grep -q "^{}"; do sleep 10; done;
+        echo "All done!";
+      '
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f config/certs/zammad-es/zammad-es.crt ]"]
+      interval: 1s
+      timeout: 5s
+      retries: 120      
+
+  zammad-es:
+    depends_on:
+      zammad-es-setup:
+        condition: service_healthy
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ES_STACK_VERSION}
+    volumes:
+      - zammad-certs:/usr/share/elasticsearch/config/certs
+      - zammad-esdata:/usr/share/elasticsearch/data      
+      - zammad-esconfig:/usr/share/elasticsearch/config
+    ports:
+      - ${ES_PORT}:9200
+    environment:
+      - node.name=zammad-es
+      - cluster.name=${ES_CLUSTER_NAME}
+      - cluster.initial_master_nodes=zammad-es
+      - ELASTIC_PASSWORD=${ES_PASS}
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/zammad-es/zammad-es.key
+      - xpack.security.http.ssl.certificate=certs/zammad-es/zammad-es.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.http.ssl.verification_mode=certificate
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/zammad-es/zammad-es.key
+      - xpack.security.transport.ssl.certificate=certs/zammad-es/zammad-es.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${ES_LICENSE}
+    mem_limit: ${ES_MEM_LIMIT}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test:
+        [
+            "CMD-SHELL",
+            "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+
+  zammad-memcached:
+    command: memcached -m 256M
+    image: memcached:${MEMCACHE_VERSION}
+    restart: ${RESTART}
+
+  zammad-postgresql:
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASS}
+    image: postgres:${POSTGRES_VERSION}
+    restart: ${RESTART}
+    volumes:
+      - postgresql-data:/var/lib/postgresql/data
+      - zammad-backup:/var/tmp/zammad:ro
+      - zammad-data:/opt/zammad
+
+  zammad-redis:
+    image: redis:${REDIS_VERSION}
+    restart: ${RESTART}
+  
+  zammad-kib:
+    depends_on:
+      zammad-es:
+        condition: service_healthy
+    image: docker.elastic.co/kibana/kibana:${ESSTACK_VERSION}
+    volumes:
+      - zammad-certs:/usr/share/kibana/config/certs
+      - zammad-kibdata:/usr/share/kibana/data      
+      - zammad-kibconfig:/usr/share/kibana/config
+    ports:
+      - ${KIB_PORT}:5601
+    environment:
+      - SERVERNAME=zammad-kib
+      - ELASTICSEARCH_HOSTS=${ES_SCHEMA}://${ES_HOST}:${ES_PORT}
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIB_PASS}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+    mem_limit: ${MEM_LIMIT}
+    healthcheck:
+      test:
+        [
+            "CMD-SHELL",
+            "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+  
+  zammad-init:
+    command: ["zammad-init"]
+    depends_on:
+      - zammad-postgresql
+    environment:
+      - MEMCACHE_SERVERS=${MEMCACHE_SERVERS}
+      - POSTGRESQL_USER=${POSTGRES_USER}
+      - POSTGRESQL_PASS=${POSTGRES_PASS}
+      - REDIS_URL=${REDIS_URL}
+      - ELASTICSEARCH_HOST=${ES_HOST}
+      - ELASTICSEARCH_PORT=${ES_PORT}
+      - ELASTICSEARCH_SCHEMA=${ES_SCHEMA}
+      - ELASTICSEARCH_NAMESPACE=${ES_NAMESPACE}
+      
+    image: ${IMAGE_REPO}:${VERSION}
+    restart: on-failure
+    volumes:
+      - zammad-data:/opt/zammad
+      
+  zammad-railsserver:
+    command: ["zammad-railsserver"]
+    depends_on:
+      - zammad-memcached
+      - zammad-postgresql
+      - zammad-redis
+    environment:
+      - MEMCACHE_SERVERS=${MEMCACHE_SERVERS}
+      - REDIS_URL=${REDIS_URL}
+    image: ${IMAGE_REPO}:${VERSION}
+    restart: ${RESTART}
+    volumes:
+      - zammad-data:/opt/zammad
+
+  zammad-scheduler:
+    command: ["zammad-scheduler"]
+    depends_on:
+      - zammad-memcached
+      - zammad-railsserver
+      - zammad-redis
+    environment:
+      - MEMCACHE_SERVERS=${MEMCACHE_SERVERS}
+      - REDIS_URL=${REDIS_URL}
+    image: ${IMAGE_REPO}:${VERSION}
+    restart: ${RESTART}
+    volumes:
+      - zammad-data:/opt/zammad
+
+  zammad-websocket:
+    command: ["zammad-websocket"]
+    depends_on:
+      - zammad-memcached
+      - zammad-railsserver
+      - zammad-redis
+    environment:
+      - MEMCACHE_SERVERS=${MEMCACHE_SERVERS}
+      - REDIS_URL=${REDIS_URL}
+    image: ${IMAGE_REPO}:${VERSION}
+    restart: ${RESTART}
+    volumes:
+      - zammad-data:/opt/zammad
+
+  zammad-nginx:
+    command: ["zammad-nginx"]
+    expose:
+      - "8080"
+    ports:
+      - ${ZAMMAD_PORT}:8080
+    depends_on:
+      - zammad-railsserver
+    image: ${IMAGE_REPO}:${VERSION}
+    restart: ${RESTART}
+    volumes:
+      - zammad-data:/opt/zammad
+
+  zammad-backup:
+    command: ["zammad-backup"]
+    depends_on:
+      - zammad-railsserver
+      - zammad-postgresql
+    entrypoint: /usr/local/bin/backup.sh
+    environment:
+      - BACKUP_SLEEP=86400
+      - HOLD_DAYS=10
+      - POSTGRESQL_USER=${POSTGRES_USER}
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASS}
+    image: postgres:${POSTGRES_VERSION}
+    restart: ${RESTART}
+    volumes:
+      - zammad-backup:/var/tmp/zammad
+      - zammad-data:/opt/zammad:ro
+      - ${BACKUPSCRPIT_PATH}/scripts/backup.sh:/usr/local/bin/backup.sh:ro
+
+volumes:
+  zammad-esdata:
+    driver: local
+  zammad-esconfig:
+    driver: local
+  postgresql-data:
+    driver: local
+  zammad-backup:
+    driver: local
+  zammad-data:
+    driver: local
+  zammad-certs:
+    driver: local
+  zammad-kibdata:
+    driver: local
+  zammad-kibconfig:
+    driver: local  
