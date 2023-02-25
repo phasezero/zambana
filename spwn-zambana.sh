@@ -25,6 +25,7 @@ else
 
 echo -e "\nStarting docker containers \n"
 cd "$(dirname $0)" || exit
+chmod 775 scripts/bachup.sh
 docker-compose -p "$PROJECT_NAME" up -d
 wait $!
 # keep cool, it takes time
