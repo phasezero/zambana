@@ -4,7 +4,7 @@ version: '1'
 services:
 
   zammad-es-setup:
-    image: docker.elastic.co/elasticsearch/elasticsearch:${ESSTACK_VERSION}
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ES_STACK_VERSION}
     volumes:
       - zammad-certs:/usr/share/elasticsearch/config/certs
     user: "0"
@@ -26,7 +26,7 @@ services:
           echo "Creating certs";
           echo -ne \
           "instances:\n"\
-          "  - name: zammades\n"\
+          "  - name: zammad-es\n"\
           "    dns:\n"\
           "      - zammad-es\n"\
           "      - localhost\n"\
@@ -51,6 +51,24 @@ services:
       interval: 1s
       timeout: 5s
       retries: 120      
+
+  zammad-backup:
+    command: ["zammad-backup"]
+    depends_on:
+      - zammad-railsserver
+      - zammad-postgresql
+    entrypoint: /usr/local/bin/backup.sh
+    environment:
+      - BACKUP_SLEEP=86400
+      - HOLD_DAYS=10
+      - POSTGRESQL_USER=${POSTGRES_USER}
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASS}
+    image: postgres:${POSTGRES_VERSION}
+    restart: ${RESTART}
+    volumes:
+      - zammad-backup:/var/tmp/zammad
+      - zammad-data:/opt/zammad:ro
+      - ${BACKUPSCRPIT_PATH}/scripts/backup.sh:/usr/local/bin/backup.sh:ro
 
   zammad-es:
     depends_on:
@@ -95,54 +113,6 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
-
-  zammad-memcached:
-    command: memcached -m 256M
-    image: memcached:${MEMCACHE_VERSION}
-    restart: ${RESTART}
-
-  zammad-postgresql:
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASS}
-    image: postgres:${POSTGRES_VERSION}
-    restart: ${RESTART}
-    volumes:
-      - postgresql-data:/var/lib/postgresql/data
-      - zammad-backup:/var/tmp/zammad:ro
-      - zammad-data:/opt/zammad
-
-  zammad-redis:
-    image: redis:${REDIS_VERSION}
-    restart: ${RESTART}
-  
-  zammad-kib:
-    depends_on:
-      zammad-es:
-        condition: service_healthy
-    image: docker.elastic.co/kibana/kibana:${ESSTACK_VERSION}
-    volumes:
-      - zammad-certs:/usr/share/kibana/config/certs
-      - zammad-kibdata:/usr/share/kibana/data      
-      - zammad-kibconfig:/usr/share/kibana/config
-    ports:
-      - ${KIB_PORT}:5601
-    environment:
-      - SERVERNAME=zammad-kib
-      - ELASTICSEARCH_HOSTS=${ES_SCHEMA}://${ES_HOST}:${ES_PORT}
-      - ELASTICSEARCH_USERNAME=kibana_system
-      - ELASTICSEARCH_PASSWORD=${KIB_PASS}
-      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
-    mem_limit: ${MEM_LIMIT}
-    healthcheck:
-      test:
-        [
-            "CMD-SHELL",
-            "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
-        ]
-      interval: 10s
-      timeout: 10s
-      retries: 120
   
   zammad-init:
     command: ["zammad-init"]
@@ -162,7 +132,36 @@ services:
     restart: on-failure
     volumes:
       - zammad-data:/opt/zammad
-      
+    
+  zammad-memcached:
+    command: memcached -m 256M
+    image: memcached:${MEMCACHE_VERSION}
+    restart: ${RESTART}
+ 
+  zammad-nginx:
+    command: ["zammad-nginx"]
+    expose:
+      - "8080"
+    ports:
+      - ${ZAMMAD_PORT}:8080
+    depends_on:
+      - zammad-railsserver
+    image: ${IMAGE_REPO}:${VERSION}
+    restart: ${RESTART}
+    volumes:
+      - zammad-data:/opt/zammad
+
+  zammad-postgresql:
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASS}
+    image: postgres:${POSTGRES_VERSION}
+    restart: ${RESTART}
+    volumes:
+      - postgresql-data:/var/lib/postgresql/data
+      - zammad-backup:/var/tmp/zammad:ro
+      - zammad-data:/opt/zammad
+
   zammad-railsserver:
     command: ["zammad-railsserver"]
     depends_on:
@@ -177,6 +176,10 @@ services:
     volumes:
       - zammad-data:/opt/zammad
 
+  zammad-redis:
+    image: redis:${REDIS_VERSION}
+    restart: ${RESTART}
+  
   zammad-scheduler:
     command: ["zammad-scheduler"]
     depends_on:
@@ -205,37 +208,34 @@ services:
     volumes:
       - zammad-data:/opt/zammad
 
-  zammad-nginx:
-    command: ["zammad-nginx"]
-    expose:
-      - "8080"
+  zammad-kib:
+    depends_on:
+      zammad-es:
+        condition: service_healthy
+    image: docker.elastic.co/kibana/kibana:${ES_STACK_VERSION}
+    volumes:
+      - zammad-certs:/usr/share/kibana/config/certs
+      - zammad-kibdata:/usr/share/kibana/data      
+      - zammad-kibconfig:/usr/share/kibana/config
     ports:
-      - ${ZAMMAD_PORT}:8080
-    depends_on:
-      - zammad-railsserver
-    image: ${IMAGE_REPO}:${VERSION}
-    restart: ${RESTART}
-    volumes:
-      - zammad-data:/opt/zammad
-
-  zammad-backup:
-    command: ["zammad-backup"]
-    depends_on:
-      - zammad-railsserver
-      - zammad-postgresql
-    entrypoint: /usr/local/bin/backup.sh
+      - ${KIB_PORT}:5601
     environment:
-      - BACKUP_SLEEP=86400
-      - HOLD_DAYS=10
-      - POSTGRESQL_USER=${POSTGRES_USER}
-      - POSTGRESQL_PASSWORD=${POSTGRES_PASS}
-    image: postgres:${POSTGRES_VERSION}
-    restart: ${RESTART}
-    volumes:
-      - zammad-backup:/var/tmp/zammad
-      - zammad-data:/opt/zammad:ro
-      - ${BACKUPSCRPIT_PATH}/scripts/backup.sh:/usr/local/bin/backup.sh:ro
-
+      - SERVERNAME=zammad-kib
+      - ELASTICSEARCH_HOSTS=${ES_SCHEMA}://${ES_HOST}:${ES_PORT}
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIB_PASS}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+    mem_limit: ${ES_MEM_LIMIT}
+    healthcheck:
+      test:
+        [
+            "CMD-SHELL",
+            "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+ 
 volumes:
   zammad-esdata:
     driver: local
