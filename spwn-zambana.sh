@@ -14,7 +14,6 @@ source ./.env
 
 if [[ $(docker compose ls | grep $PROJECT_NAME) ]]
 then
-
     echo -e "\nStack already exists! You will have to reconfigure PROJECT_NAME and service Ports in .env or it will crash!"
     echo "Good bye!"
     exit
@@ -29,7 +28,7 @@ wait $!
 # keep cool, it takes time
 sleep 10
 
-echo -e \n"Configuring elasticsearch connection"
+echo -e "\nConfiguring elasticsearch connection"
 
 # import zammd.conf for zammad configurations via rails
 while read -r line
@@ -39,18 +38,20 @@ do
         eval varstr_eval=$varstr
         line=${line/$varstr/"$varstr_eval"}
     fi
+    echo -e "\n$line"
     docker exec $PROJECT_NAME-zammad-init-1 rails r \"$line\"
     wait $!
 done < <(grep -v '^#' ./conf/zammad.conf)
 
-echo -e "\Connection configured. Finishing initialisation\n"
+echo -e "\nConnection configured. Finishing initialisation\n"
 
 while [ "$(docker ps -aq -f status=exited -f name=$PROJECT_NAME-zammad-init-1)" ]
 do
-    sleep 2s
+    sleep 5s
 done
 if [ "$(docker ps -aq -f status=exited -f name=$PROJECT_NAME-zammad-es-setup-1)" ]; then
     docker container rm $PROJECT_NAME-zammad-es-setup-1
     wait $!
 fi
-echo \n"Installation finished. Connection with elasticsearch established"
+echo -e "\nInstallation finished. Connection with elasticsearch established.\nHave FUN!"
+fi
