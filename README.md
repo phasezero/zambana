@@ -1,13 +1,24 @@
 # zambana
 Docker compose solution to install zammad ticket system including Kibana reporting.
 
-## Installation
-### prerequsites
+## prerequsites
 - Docker
 
-After downloading zambana just start docker compose
-
+## (Quick) Installation
+After cloneing zambana Repo go into zambana folder.
 ```
-docker-compose -p zambana up
+cd zambana
+```
+make sure the backup.sh script is executeable.
+If needed you can prepair zammad configuration in zammad.conf file before you start the installation.
+```
+chmod -x scripts/backup.sh
+```
+now execute  the spawn script
+```
+sh ./spwn-zambana.sh
 ```
 
+## Configuration
+For explicit an detailed configuration read the elasticsearch and zammad documentaion.
+A configuarion of zammad via rails can be prepaird in zammad.conf. These settings will be made during installation process.
