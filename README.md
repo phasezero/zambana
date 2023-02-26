@@ -12,7 +12,7 @@ cd zambana
 make sure the backup.sh script is executeable.
 If needed you can prepair zammad configuration in zammad.conf file before you start the installation.
 ```
-chmod -x scripts/backup.sh
+chmod +x scripts/backup.sh
 ```
 now execute  the spawn script
 ```
