@@ -1,5 +1,5 @@
 # zambana
-Docker compose solution to install zammad ticket system including Kibana reporting.
+Docker compose solution to install [zammad](https://zammad.com/ "Zammad: Helpdesk-Software & Ticketsystem für Ihr Business") ticket system including [Kibana](https://www.elastic.co/de/kibana/ "Kibana: Visualisieren, Analysieren und Erkunden von Daten") reporting.
 
 ## prerequsites
 - Docker
@@ -20,5 +20,8 @@ sh ./spwn-zambana.sh
 ```
 
 ## Configuration
-For explicit an detailed configuration read the elasticsearch and zammad documentaion.
-A configuarion of zammad via rails can be prepaird in zammad.conf. These settings will be made during installation process.
+For explicit an detailed configuration read the [Zammad admin-doc](https://admin-docs.zammad.org/en/latest/ "Zammad - Documentation for administrators"), [Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/settings.html "Configuring Elasticsearch") and [Kibana](https://www.elastic.co/guide/en/kibana/current/settings.html "Configure Kibana") configuration guides.
+A configuarion of Zammad via rails can be prepaird in zammad.conf. These settings will be made during installation process.
+
+## ToDO
+Minor preconfiguration of elasticsearch and kibana.
