@@ -39,7 +39,7 @@ function install_stack () {
 
 function config_zammad () {
     echo -e "\nConfiguring zammad"
-    #sleep 5s
+    sleep 5s
     # import zammd.conf for zammad configurations via rails
     while read -r line
     do
@@ -57,6 +57,19 @@ function config_zammad () {
 
 function config_elastic () {
     echo -e "\nConfiguring elastichsearch"
+    while read -r line
+    do
+        varstr=$(echo "$line" | cut -d "'" -f 4 | sed 's/)$//')
+        # needed to check if a value is configured in .env
+        if [[ $varstr =~ ^\$.* ]]; then
+            eval varstr_eval="$varstr"
+            line=${line/$varstr/"$varstr_eval"}
+        fi
+        # execute rails in docker container
+        docker exec -u 0 zambana-zammad-es-1 bash -c \'echo ""$line"" >> /usr/share/elasticsearch/config/elasticsearch.yml\'
+        wait $!
+    done < <(grep -v '^#' "$1"/conf/elastic.conf)
+    
 
 }
 
