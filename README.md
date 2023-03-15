@@ -3,6 +3,7 @@ Docker compose solution to install [zammad](https://zammad.com/ "Zammad: Helpdes
 
 ## prerequsites
 - Docker
+- Python
 
 ## (Quick) Installation
 After cloneing zambana Repo go into zambana folder.
@@ -14,9 +15,9 @@ If needed you can prepair zammad configuration in zammad.conf file before you st
 ```
 chmod +x scripts/backup.sh
 ```
-now execute  the spawn script
+now execute zambana.py
 ```
-sh ./spwn-zambana.sh
+python zambana.py
 ```
 
 ## Configuration
