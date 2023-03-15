@@ -16,9 +16,14 @@ def yaml_dumper(file, data):
 
 
 def run(cmd):
-    import shlex, subprocess
+    import shlex
+    from subprocess import PIPE, Popen
     args = shlex.split(cmd)
-    subprocess.check_call(args)
+    #subprocess.check_call(args)
+    with Popen(args, stdout=PIPE, stderr=None, shell=False) as process:
+    #process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=None, shell=True)
+        output, error = process.communicate()
+    return output, error
 
 
 def get_ip(ip_addr_proto="ipv4", ignore_local_ips=True):
@@ -61,8 +66,16 @@ def startup_check():
     '''
     from os import X_OK, access
     from shutil import which
+    import platform
     print(f"\nChecking dependencies")
     check = True
+
+    if platform.system() == 'Linux':
+        output, error = run('sysctl vm.max_map_count')
+        if output.decode("utf-8").split(" = ")[1][:-1] != "262144":
+            check = False
+            print("ERROR: Virtual Memory. You need to check your vm.max_map_count.\nSee https://www.elastic.co/guide/en/elasticsearch/reference/current/vm-max-map-count.html for more information.")
+            exit
 
     if which("docker-compose") is None:
         print("Could not find docker-compose. Check your docker installation.")
@@ -110,6 +123,15 @@ def docker_install(project_name):
 
 def zammad_config(env):
     print(f"\nConfiguring zammad")
+    railsContainer = f'{env["PROJECT_NAME"]}_zammad-raisserver-1'
+    output,error = run(f'docker container ls -f name={env["PROJECT_NAME"]}_zammad-rails -q')
+    if error != None:
+        print("Container railsserver not found: ABORT")
+        run('docker compose down -v')
+        exit
+    else:
+        railsContainer = output.decode("utf-8")[:-1]
+
     # read zammad.yml configuration file
     zammad_conf = yaml_loader(
         Path(__file__).parent.absolute().joinpath("conf/zammad.yml"))
@@ -126,23 +148,34 @@ def zammad_config(env):
             line = f"Setting.set('{k}',{v})"
 
         # execute configuration
-        command_line = f'docker exec {env["PROJECT_NAME"]}-zammad-railsserver-1 rails r "{line}"'
+        command_line = f'docker exec {railsContainer} rails r "{line}"'
         print(f"\nSetting {k}: {v}")
-        run(command_line)
+        output, error = run(command_line)
+        if error != None:
+            print(f'{k}couldn not be set - chek manually')
     return 0
 
 
 def elastic_config(env):
+    esContainer = f'{env["PROJECT_NAME"]}_zammad-es-1'
+    output,error = run(f'docker container ls -f name={env["PROJECT_NAME"]}_zammad-es -q')
+    if error != None:
+        print("Container elasticsearch not found: ABORT")
+        run('docker compose down -v')
+        exit
+    else:
+        esContainer = output.decode("utf-8")[:-1]
+
     print(f"\nConfiguring elasticsearch")
     # copy elasticsearch.yml from Elasticsearch docker into filesystem
-    command_line = f'docker cp {env["PROJECT_NAME"]}-zammad-es-1:/usr/share/elasticsearch/config/elasticsearch.yml .'
+    command_line = f'docker cp {esContainer}:/usr/share/elasticsearch/config/elasticsearch.yml .'
     run(command_line)
 
     file_path1 = Path(__file__).parent.absolute().joinpath("conf/elastic.yml")
     file_path2 = Path(__file__).parent.absolute().joinpath("elasticsearch.yml")
 
     # backup original elasticsearch.yml to elasticsearch.yml.old
-    command_line = f'docker cp {file_path2} {env["PROJECT_NAME"]}-zammad-es-1:/usr/share/elasticsearch/config/elasticsearch.yml.old'
+    command_line = f'docker cp {file_path2} {esContainer}:/usr/share/elasticsearch/config/elasticsearch.yml.old'
     run(command_line)
 
     # read both yaml files as Dictionaries
@@ -156,11 +189,11 @@ def elastic_config(env):
     yaml_dumper(file_path2, elasticsearch_yml_orig)
 
     # copying new configuration into docker container and restart container
-    command_line = f'docker cp elasticsearch.yml {env["PROJECT_NAME"]}-zammad-es-1:/usr/share/elasticsearch/config/elasticsearch.yml'
+    command_line = f'docker cp elasticsearch.yml {esContainer}:/usr/share/elasticsearch/config/elasticsearch.yml'
     run(command_line)
     print(f'\nConfiguration updated, restarting elasticsearch')
     Path(file_path2).unlink(missing_ok=True)
-    command_line = f'docker restart {env["PROJECT_NAME"]}-zammad-es-1'
+    command_line = f'docker restart {esContainer}'
     run(command_line)
     print(f'restarted')
     return 0
@@ -174,7 +207,7 @@ def main() -> int:
         env = dotenv_values(str(Path(__file__).parent.absolute())+"/.env")
 
         docker_install(env["PROJECT_NAME"])
-        time.sleep(7)
+        time.sleep(10)
         zammad_config(env)
         elastic_config(env)
         print(
@@ -189,3 +222,4 @@ if __name__ == '__main__':
     import sys
     from pathlib import Path
     sys.exit(main())
+    
