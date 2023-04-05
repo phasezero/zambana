@@ -101,15 +101,12 @@ def startup_check():
 
     if not Path(__file__).parent.absolute().joinpath("conf/elastic.yml").exists():
         print("Could not find elasticsearch configuration - Aborting.")
-
-    
-    '''
-    TODO
         check = False
+
     if not Path(__file__).parent.absolute().joinpath("conf/kibana.yml").exists():
         print("Could not find kibana configuration - Aborting.")
         check = False
-    '''
+
     return check
 
 
@@ -119,7 +116,6 @@ def docker_install(project_name):
     command_line = f"docker-compose -p {project_name} up -d"
     run(command_line)
     return
-
 
 def zammad_config(env):
     print(f"\nConfiguring zammad")
@@ -197,6 +193,47 @@ def elastic_config(env):
     print(f'restarted')
     return 0
 
+def kibana_config(env):
+    
+    output,error = run(f'docker container ls -f name={env["PROJECT_NAME"]}_zammad-es -q')
+    if error != None:
+        print("Container kibana not found: ABORT")
+        run('docker compose down -v')
+        exit
+    else:
+        kibContainer = output.decode("utf-8")[:-1]
+
+    print(f"\nConfiguring kibana")
+    # copy kibana.yml from kibana docker into filesystem
+    command_line = f'docker cp {kibContainer}:/usr/share/kibana/config/kibana.yml .'
+    run(command_line)
+
+    file_path1 = Path(__file__).parent.absolute().joinpath("conf/kibana.yml")
+    file_path2 = Path(__file__).parent.absolute().joinpath("kibana.yml")
+
+    # backup original kibana.yml to kibana.yml.old
+    command_line = f'docker cp {file_path2} {kibContainer}:/usr/share/kibana/config/kibana.yml.old'
+    run(command_line)
+
+    # read both yaml files as Dictionaries
+    kibana_conf = yaml_loader(file_path1)
+    kibana_yml_orig = yaml_loader(file_path2)
+
+    # Merge the dictionaries
+    kibana_yml_orig.update(kibana_conf)
+
+    # Write the merged dictionary to a new file
+    yaml_dumper(file_path2, kibana_yml_orig)
+
+    # copying new configuration into docker container and restart container
+    command_line = f'docker cp kibana.yml {kibContainer}:/usr/share/kibana/config/kibana.yml'
+    run(command_line)
+    print(f'\nConfiguration updated, restarting kibana')
+    Path(file_path2).unlink(missing_ok=True)
+    command_line = f'docker restart {kibContainer}'
+    run(command_line)
+    print(f'restarted')
+    return 0
 
 def main() -> int:
     import time
@@ -209,6 +246,7 @@ def main() -> int:
         time.sleep(10)
         zammad_config(env)
         elastic_config(env)
+        kibana_config(env)
         print(
             f"\nDone. Open Zammad at http://{get_ip()[0]}:{env['ZAMMAD_PORT']}\nHave FUN!")
 
