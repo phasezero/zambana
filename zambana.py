@@ -69,7 +69,7 @@ def startup_check():
     import platform
     print(f"\nChecking dependencies")
     check = True
-
+    # Test if requirements for elasticsearch are met
     if platform.system() == 'Linux':
         output, error = run('sysctl vm.max_map_count')
         if output.decode("utf-8").split(" = ")[1][:-1] != "262144":
@@ -133,8 +133,7 @@ def zammad_config(env):
         railsContainer = output.decode("utf-8")[:-1]
 
     # read zammad.yml configuration file
-    zammad_conf = yaml_loader(
-        Path(__file__).parent.absolute().joinpath("conf/zammad.yml"))
+    zammad_conf = yaml_loader(Path(__file__).parent.absolute().joinpath("conf/zammad.yml"))
 
     # prepair configuration command for each configuration line
     for (k, v) in zammad_conf.items():
@@ -202,7 +201,7 @@ def elastic_config(env):
 def main() -> int:
     import time
     if startup_check():
-        run(f"{sys.executable} -m pip install -r ./requirements.txt")
+        run(f'{sys.executable} -m pip install -r {str(Path(__file__).parent.absolute().joinpath("requirements.txt"))}')
         from dotenv import dotenv_values
         env = dotenv_values(str(Path(__file__).parent.absolute())+"/.env")
 
