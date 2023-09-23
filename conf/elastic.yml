@@ -2,9 +2,8 @@
 # may additional configuration might needs to be done @ the hostsystem
 # read: https://docs.zammad.org/en/latest/install/elasticsearch.html
 # and https://www.elastic.co/guide/en/elasticsearch/reference/master/docker.html#_set_vm_max_map_count_to_at_least_262144s
+# and https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html
 
-# Performance may suffer if it is set too high.
-http.max_content_length: 400mb
 
 # Allows the engine to generate larger (more complex) search queries.
 # Elasticsearch will raise an error or deprecation notice if this value is too low,
