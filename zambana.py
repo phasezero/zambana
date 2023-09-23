@@ -237,26 +237,42 @@ def kibana_config(env):
 
 def main() -> int:
     import time
-    if startup_check():
-        run(f'{sys.executable} -m pip install -r {str(Path(__file__).parent.absolute().joinpath("requirements.txt"))}')
-        from dotenv import dotenv_values
-        env = dotenv_values(str(Path(__file__).parent.absolute())+"/.env")
-
-        docker_install(env["PROJECT_NAME"])
-        time.sleep(10)
-        zammad_config(env)
-        elastic_config(env)
-        kibana_config(env)
-        print(
-            f"\nDone. Open Zammad at http://{get_ip()[0]}:{env['ZAMMAD_PORT']}\nHave FUN!")
-
-    else:
-        return 1
+    
+    parser =argparse.ArgumentParser(
+        prog='zambana',
+        description = 'Install Zammad with Kibana as docker-stack',
+        epilog = 'May the force be with you'
+    )
+    
+    parser.add_argument('-i', '--install', action='store_true', help = 'installation without config')
+    parser.add_argument('-u', '--uninstall', action='store_true', help='uninstall docker-stack')
+    parser.add_argument('-c', '--config', action='store_true',help='only runs configurations')
+    
+    args = parser.parse_args()
+    
+    if args.uninstall:
+        run('docker down -v')
+    else: 
+        if startup_check():
+            run(f'{sys.executable} -m pip install -r {str(Path(__file__).parent.absolute().joinpath("requirements.txt"))}')
+            from dotenv import dotenv_values
+            env = dotenv_values(str(Path(__file__).parent.absolute())+"/.env")
+            
+            if not args.config:
+                docker_install(env["PROJECT_NAME"])
+                time.sleep(10)
+            if not args.install:
+                zammad_config(env)
+                elastic_config(env)
+                kibana_config(env)
+            print(f"\nDone. Open Zammad at http://{get_ip()[0]}:{env['ZAMMAD_PORT']}\nHave FUN!")
+        else:
+            return 1
     return 0
-
 
 if __name__ == '__main__':
     import sys
     from pathlib import Path
+    import argparse
     sys.exit(main())
     
