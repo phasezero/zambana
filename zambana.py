@@ -18,12 +18,24 @@ def yaml_dumper(file, data):
 def run(cmd):
     import shlex
     from subprocess import PIPE, Popen
-    args = shlex.split(cmd)
-    #subprocess.check_call(args)
-    with Popen(args, stdout=PIPE, stderr=None, shell=False) as process:
-    #process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=None, shell=True)
-        output, error = process.communicate()
-    return output, error
+    cmdset = cmd.split('|')
+    ret = []
+    if len(cmdset) == 1:
+        args = shlex.split(cmdset[0])
+        # subprocess.check_call(args)
+        #with Popen(args, stdout=PIPE, stderr=None, shell=False) as process:
+            # process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=None, shell=True)
+        ret.append(Popen(args, stdout=PIPE, stderr=None, shell=False).communicate())
+    else:
+        i = 0
+        for command in cmdset:
+            if i == 0:
+                ret.append(Popen(shlex.split(command), stdout=PIPE, stderr=None, shell=False, text=True))
+            else:
+                ret.append(Popen(shlex.split(command), stdin=ret[i-1].stdout, stdout=PIPE, stderr=None, shell=False, text=True))
+            i += 1
+        ret[-1] = ret[-1].communicate()
+    return ret[-1]
 
 
 def get_ip(ip_addr_proto="ipv4", ignore_local_ips=True):
@@ -109,6 +121,14 @@ def startup_check():
 
     return check
 
+def get_container_id(name):
+    command = 'docker ps --format "{{.ID}} {{.Names}}" | grep "'+name+'" | cut -d " " -f1'
+    output, error = run(command)
+    if error != None:
+        print(f"Container {name} not found: ABORT")
+        exit
+    return output[:-1]
+
 
 def docker_install(project_name):
     # installing docker stack
@@ -117,20 +137,16 @@ def docker_install(project_name):
     run(command_line)
     return
 
+
 def zammad_config(env):
     print(f"\nConfiguring zammad")
-    railsContainer = f'{env["PROJECT_NAME"]}_zammad-raisserver-1'
-    output,error = run(f'docker container ls -f name={env["PROJECT_NAME"]}_zammad-rails -q')
-    if error != None:
-        print("Container railsserver not found: ABORT")
-        run('docker compose down -v')
-        exit
-    else:
-        railsContainer = output.decode("utf-8")[:-1]
+    
+    railsContainer = get_container_id('zammad-railsserver')
 
     # read zammad.yml configuration file
-    zammad_conf = yaml_loader(Path(__file__).parent.absolute().joinpath("conf/zammad.yml"))
-
+    zammad_conf = yaml_loader(
+        Path(__file__).parent.absolute().joinpath("conf/zammad.yml"))
+    
     # prepair configuration command for each configuration line
     for (k, v) in zammad_conf.items():
         if str(v)[0] == "$":
@@ -143,25 +159,21 @@ def zammad_config(env):
             line = f"Setting.set('{k}',{v})"
 
         # execute configuration
-        command_line = f'docker exec {railsContainer} rails r "{line}"'
+        command_line = f'docker exec {railsContainer} /docker-entrypoint.sh rails r "{line}"'
         print(f"\nSetting {k}: {v}")
         output, error = run(command_line)
         if error != None:
-            print(f'{k}couldn not be set - chek manually')
+            print(f'{k}couldn not be set - check manually')
+        else:
+            print(output.decode('utf-8'))
     return 0
 
 
 def elastic_config(env):
-    esContainer = f'{env["PROJECT_NAME"]}_zammad-es-1'
-    output,error = run(f'docker container ls -f name={env["PROJECT_NAME"]}_zammad-es -q')
-    if error != None:
-        print("Container elasticsearch not found: ABORT")
-        run('docker compose down -v')
-        exit
-    else:
-        esContainer = output.decode("utf-8")[:-1]
-
     print(f"\nConfiguring elasticsearch")
+    
+    esContainer = get_container_id('zammad-elasticsearch')
+        
     # copy elasticsearch.yml from Elasticsearch docker into filesystem
     command_line = f'docker cp {esContainer}:/usr/share/elasticsearch/config/elasticsearch.yml .'
     run(command_line)
@@ -193,17 +205,12 @@ def elastic_config(env):
     print(f'restarted')
     return 0
 
-def kibana_config(env):
-    
-    output,error = run(f'docker container ls -f name={env["PROJECT_NAME"]}_zammad-es -q')
-    if error != None:
-        print("Container kibana not found: ABORT")
-        run('docker compose down -v')
-        exit
-    else:
-        kibContainer = output.decode("utf-8")[:-1]
 
+def kibana_config(env):
     print(f"\nConfiguring kibana")
+    
+    kibContainer =get_container_id('zammad-kibana')
+        
     # copy kibana.yml from kibana docker into filesystem
     command_line = f'docker cp {kibContainer}:/usr/share/kibana/config/kibana.yml .'
     run(command_line)
@@ -235,44 +242,54 @@ def kibana_config(env):
     print(f'restarted')
     return 0
 
+
 def main() -> int:
     import time
-    
-    parser =argparse.ArgumentParser(
+
+    parser = argparse.ArgumentParser(
         prog='zambana',
-        description = 'Install Zammad with Kibana as docker-stack',
-        epilog = 'May the force be with you'
+        description='Install Zammad with Kibana as docker-stack',
+        epilog='May the force be with you'
     )
-    
-    parser.add_argument('-i', '--install', action='store_true', help = 'installation without config')
-    parser.add_argument('-u', '--uninstall', action='store_true', help='uninstall docker-stack')
-    parser.add_argument('-c', '--config', action='store_true',help='only runs configurations')
-    
+
+    parser.add_argument('-i', '--install', action='store_true',
+                        help='installation without config')
+    parser.add_argument('-u', '--uninstall',
+                        action='store_true', help='uninstall docker-stack')
+    parser.add_argument('-c', '--config', action='store_true',
+                        help='only runs configurations')
+
     args = parser.parse_args()
-    
+
     if args.uninstall:
-        run('docker down -v')
-    else: 
+        run('docker-compose down -v')
+    else:
         if startup_check():
             run(f'{sys.executable} -m pip install -r {str(Path(__file__).parent.absolute().joinpath("requirements.txt"))}')
             from dotenv import dotenv_values
             env = dotenv_values(str(Path(__file__).parent.absolute())+"/.env")
-            
+
             if not args.config:
                 docker_install(env["PROJECT_NAME"])
-                time.sleep(10)
             if not args.install:
+                for i in range(21):
+                    sys.stdout.write('\r')
+                    # the exact output you're looking for:
+                    sys.stdout.write("Waiting: [%-20s] %d%%" % ('='*i, 5*i))
+                    sys.stdout.flush()
+                    time.sleep(1)
                 zammad_config(env)
                 elastic_config(env)
                 kibana_config(env)
-            print(f"\nDone. Open Zammad at http://{get_ip()[0]}:{env['ZAMMAD_PORT']}\nHave FUN!")
+            print(
+                f"\nDone.")
         else:
             return 1
     return 0
+
 
 if __name__ == '__main__':
     import sys
     from pathlib import Path
     import argparse
     sys.exit(main())
-    
