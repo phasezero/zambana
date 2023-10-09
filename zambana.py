@@ -6,14 +6,12 @@ def yaml_loader(file):
     stream.close
     return yaml_load
 
-
 def yaml_dumper(file, data):
     import yaml
     with open(file, "w") as stream:
         yaml.dump(data, stream, default_flow_style=False,
                   explicit_start=True, allow_unicode=True)
     stream.close
-
 
 def run(cmd):
     import shlex
@@ -36,41 +34,6 @@ def run(cmd):
             i += 1
         ret[-1] = ret[-1].communicate()
     return ret[-1]
-
-
-def get_ip(ip_addr_proto="ipv4", ignore_local_ips=True):
-    # By default, this method only returns non-local IPv4 addresses
-    # To return IPv6 only, call get_ip('ipv6')
-    # To return both IPv4 and IPv6, call get_ip('both')
-    # To return local IPs, call get_ip(None, False)
-    # Can combine options like so get_ip('both', False)
-    from socket import getaddrinfo, gethostname
-    import ipaddress
-    af_inet = 2
-    if ip_addr_proto == "ipv6":
-        af_inet = 30
-    elif ip_addr_proto == "both":
-        af_inet = 0
-
-    system_ip_list = getaddrinfo(gethostname(), None, af_inet, 1, 0)
-    ip_list = []
-
-    for ip in system_ip_list:
-        ip = ip[4][0]
-
-        try:
-            ipaddress.ip_address(str(ip))
-            ip_address_valid = True
-        except ValueError:
-            ip_address_valid = False
-        else:
-            if ipaddress.ip_address(ip).is_loopback and ignore_local_ips or ipaddress.ip_address(ip).is_link_local and ignore_local_ips:
-                pass
-            elif ip_address_valid:
-                ip_list.append(ip)
-
-    return ip_list
-
 
 def startup_check():
     '''
@@ -129,14 +92,12 @@ def get_container_id(name):
         exit
     return output[:-1]
 
-
 def docker_install(project_name):
     # installing docker stack
     print(f'\nInitalizing docker stack:')
     command_line = f"docker-compose -p {project_name} up -d"
     run(command_line)
     return
-
 
 def zammad_config(env):
     print(f"\nConfiguring zammad")
@@ -167,7 +128,6 @@ def zammad_config(env):
         else:
             print(output.decode('utf-8'))
     return 0
-
 
 def elastic_config(env):
     print(f"\nConfiguring elasticsearch")
@@ -205,7 +165,6 @@ def elastic_config(env):
     print(f'restarted')
     return 0
 
-
 def kibana_config(env):
     print(f"\nConfiguring kibana")
     
@@ -242,7 +201,6 @@ def kibana_config(env):
     print(f'restarted')
     return 0
 
-
 def main() -> int:
     import time
 
@@ -271,13 +229,14 @@ def main() -> int:
 
             if not args.config:
                 docker_install(env["PROJECT_NAME"])
-            if not args.install:
+            if not args.config and not args.install:
                 for i in range(21):
                     sys.stdout.write('\r')
                     # the exact output you're looking for:
                     sys.stdout.write("Waiting: [%-20s] %d%%" % ('='*i, 5*i))
                     sys.stdout.flush()
-                    time.sleep(1)
+                    time.sleep(1.5)
+            if not args.install:
                 zammad_config(env)
                 elastic_config(env)
                 kibana_config(env)
